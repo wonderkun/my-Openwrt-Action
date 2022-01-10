@@ -1,0 +1,80 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+STOP=15
+
+CONFIG=upclient
+APP_FILE=/usr/bin/upclient
+LOCK_FILE_DIR=/var/lock
+LOCK_FILE=${LOCK_FILE_DIR}/${CONFIG}.lock
+
+set_lock() {
+	[ ! -d "$LOCK_FILE_DIR" ] && mkdir -p $LOCK_FILE_DIR
+	exec 998>"$LOCK_FILE"
+	flock -xn 998
+}
+
+unset_lock() {
+	flock -u 998
+	rm -rf "$LOCK_FILE"
+}
+unlock() {
+	failcount=1
+	while [ "$failcount" -le 10 ]; do
+		if [ -f "$LOCK_FILE" ]; then
+			let "failcount++"
+			sleep 1s
+			[ "$failcount" -ge 10 ] && unset_lock
+		else
+			break
+		fi
+	done
+}
+
+boot() {
+	sleep 5
+	service_start $APP_FILE
+}
+
+start() {
+	set_lock
+	[ $? == 1 ] && $APP_FILE echolog "脚本已经在运行，不重复运行，退出." && exit 0
+	service_start $APP_FILE
+	unset_lock
+}
+
+stop() {
+	unlock
+	set_lock
+	[ $? == 1 ] && $APP_FILE echolog "停止脚本等待超时，不重复运行，退出." && exit 0
+	service_stop $APP_FILE
+	unset_lock
+}
+
+restart() {
+	set_lock
+	[ $? == 1 ] && $APP_FILE echolog "脚本已经在运行，不重复运行，退出." && exit 0
+	service_stop $APP_FILE
+	service_start $APP_FILE
+	unset_lock
+}
+
+disable() {
+	rm -f "$IPKG_INSTROOT"/etc/rc.d/S??${CONFIG}
+	rm -f "$IPKG_INSTROOT"/etc/rc.d/K??${CONFIG}
+}
+
+enable() {
+	err=1
+	[ "$START" ] && \
+		ln -sf "../init.d/${CONFIG}" "$IPKG_INSTROOT/etc/rc.d/S${START}${CONFIG}" && \
+		err=0
+	[ "$STOP" ] && \
+		ln -sf "../init.d/${CONFIG}" "$IPKG_INSTROOT/etc/rc.d/K${STOP}${CONFIG}" && \
+		err=0
+	return $err
+}
+
+enabled() {
+	[ -x "$IPKG_INSTROOT/etc/rc.d/S${START}${CONFIG}" ]
+}

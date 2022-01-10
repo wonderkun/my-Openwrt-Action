@@ -1,0 +1,3 @@
+config example3
+	option duration 10
+	option enabled 1
